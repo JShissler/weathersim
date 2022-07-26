@@ -380,10 +380,10 @@ class PrecipitationData(BaseData):
                                 weather_event_broad_type = 'Snow'
                             elif current_hour_temperature >= 16 and current_hour_temperature <= 32:
                                 # If the temperature is between 16 and 32, determine if it is Snow or an unusual weather event (Sleet / Freezing Rain)
-                                snow_chance = random.random() * 100
-                                if snow_chance < 10:
-                                    unusual_event_chance = random.random() * 16
-                                    if unusual_event_chance <= current_hour_temperature - 16:
+                                snow_rand = random.random() * 100
+                                if snow_rand < 10:
+                                    unusual_event_rand = random.random() * 16
+                                    if unusual_event_rand <= current_hour_temperature - 16:
                                         weather_event_broad_type = 'Sleet'
                                     else:
                                         weather_event_broad_type = 'Freezing Rain'
@@ -395,8 +395,8 @@ class PrecipitationData(BaseData):
                             if weather_event_broad_type == 'Snow' and current_storm_strength > 4 and wind_speed_param_data[year][month][day][hour] >= 35:
                                 weather_event = 'Blizzard'
                             elif weather_event_broad_type == 'Rain':
-                                thunder_chance = random.random() * 11 # 11 is used for there to still be a slight chance of a 10 strength storm with no thunder
-                                if thunder_chance <= current_storm_strength:
+                                thunder_rand = random.random() * 11 # 11 is used for there to still be a slight chance of a 10 strength storm with no thunder
+                                if thunder_rand <= current_storm_strength:
                                     weather_event = 'Thunderstorm'
                                 else:
                                     weather_event = 'Rain'
@@ -425,15 +425,15 @@ class DewData(BaseData):
         wandering_result_list = [x for x in range(-12, 13)]
         wandering_result_list = [x/4 for x in wandering_result_list]
         hours_since_storm = 0
-        total_dew = []
+        total_dew_point = []
         for year in range(calc_years):
-            yearly_dew = []
+            yearly_dew_point = []
             for month in range(months_per_year):
-                monthly_dew = []
+                monthly_dew_point = []
                 for day in range(days_per_month):
-                    daily_dew = []
+                    daily_dew_point = []
                     # Recalculate wandering_result_list every day so the rate of the dew point change can be adjusted by the day's average temperature
-                    wandering_result_list = [x for x in range(-12, 13)]
+                    wandering_result_list = [x for x in range(-24, 25)]
                     wandering_result_list_modifier = (temperature_day_average[month][day] / 100)
                     wandering_result_list = [x * wandering_result_list_modifier for x in wandering_result_list]
                     for hour in range(hours_per_day):
@@ -484,25 +484,166 @@ class DewData(BaseData):
                                 else:
                                     break
                             # Adjust the peak result of wondering_odds based on the hours until a storm occurs
-                            adjusted_hours_until_storm = hours_until_storm - 12
-                            adjusted_hours_since_storm = hours_since_storm - 12
+                            adjusted_hours_until_storm = hours_until_storm - 24
+                            adjusted_hours_since_storm = hours_since_storm - 24
                             wandering_adjusted_peak = 12 - adjusted_hours_until_storm + adjusted_hours_since_storm
                             adjusted_wandering_variation = (wandering_variation / 100) * wandering_correctiveness
                             if wandering_variation >= 0:
-                                wandering_odds = self.create_weighted_list_exponential(25, wandering_adjusted_peak, wandering_step_likelihood - adjusted_wandering_variation, wandering_step_likelihood)
+                                wandering_odds = self.create_weighted_list_exponential(49, wandering_adjusted_peak, wandering_step_likelihood - adjusted_wandering_variation, wandering_step_likelihood)
                             else:
-                                wandering_odds = self.create_weighted_list_exponential(25, wandering_adjusted_peak, wandering_step_likelihood, wandering_step_likelihood + adjusted_wandering_variation)
+                                wandering_odds = self.create_weighted_list_exponential(49, wandering_adjusted_peak, wandering_step_likelihood, wandering_step_likelihood + adjusted_wandering_variation)
                             wandering_variation += random.choices(wandering_result_list, weights = wandering_odds, k = 1)[0]
                             # Reduce wandering_variation to slightly less than 100% relative humidity if a storm is not active
-                            if wandering_variation + self.dew_point[month][day] > temperature_param_data[year][month][day][hour] * 0.95:
-                                wandering_variation = temperature_param_data[year][month][day][hour] * 0.95 - self.dew_point[month][day]
+                            if wandering_variation + self.dew_point[month][day] > temperature_param_data[year][month][day][hour] * 0.98:
+                                wandering_variation = temperature_param_data[year][month][day][hour] * 0.98 - self.dew_point[month][day]
+                                wandering_variation = math.floor(wandering_variation)
                         # Round the new hourly dew point and append it to the list
                         rounded_hourly_dew = round(self.dew_point[month][day] + wandering_variation, 2)
-                        daily_dew.append(rounded_hourly_dew)
-                    monthly_dew.append(daily_dew)
-                yearly_dew.append(monthly_dew)
-            total_dew.append(yearly_dew)
-        self.usable_hourly = total_dew
+                        daily_dew_point.append(rounded_hourly_dew)
+                    monthly_dew_point.append(daily_dew_point)
+                yearly_dew_point.append(monthly_dew_point)
+            total_dew_point.append(yearly_dew_point)
+        self.usable_hourly_dew_point = total_dew_point
+
+    def generate_dew_frost(self, temperature_param_data, precipitation_param_data, sunrise_param_data, sundown_param_data):
+        # Determine when dew and frost should form based on temperature, dew point, and sunrise/sunset
+        # Temperature is used to determine if the air is saturated enough to form dew or frost by comparing the dew point and temperature
+        # Additionally, temperature is used to determined if it should be dew or frost that is formed
+        # Sunrise and sunset are used to determine if common dew and frost should form. It should be rare for dew and frost to form outside of the night/morning hours
+        dew_rare_event = 0
+        last_dew_event = ''
+        total_dew_frost = []
+        for year in range(calc_years):
+            yearly_dew_frost = []
+            for month in range(months_per_year):
+                monthly_dew_frost = []
+                for day in range(days_per_month):
+                    daily_dew_frost = []
+                    for hour in range(hours_per_day):
+                        current_temperature = temperature_param_data[year][month][day][hour]
+                        storm_active = True if precipitation_param_data[year][month][day][hour] > 0 else False
+                        sunrise_hour = int(math.modf(sunrise_param_data[month][day])[1])
+                        sunset_hour = int(math.modf(sundown_param_data[month][day])[1])
+                        current_dew_point = self.usable_hourly_dew_point[year][month][day][hour]
+                        # First, check if there is an active rare dew event and the current temperature is below 32 (A frost event)
+                        if dew_rare_event > 0 and current_temperature < 32:
+                            dew_frost_event = True
+                            dew_rare_event -= 1
+                        # Second, check if there is an active rare dew event and there is rain. If so, disable the active rare dew event and have no dew
+                        elif dew_rare_event > 0 and storm_active:
+                            dew_frost_event = False
+                            dew_rare_event = 0
+                        # Third, check if a precipitation event is active and there isn't a rare dew event active
+                        elif storm_active:
+                            dew_frost_event = False
+                        # Fourth, check if the dew point and temperature are close together enough for dew and frost to form
+                        elif current_dew_point >= current_temperature * 0.85:
+                            # Check if it is in the night/morning and dew/frost should form else check if a rare daytime dew/frost should form
+                            if hour < sunrise_hour + 2 or hour > sunset_hour + 3:
+                                dew_frost_event = True
+                            else:
+                                dew_rare_event_rand = random.random() * 100
+                                # In the event of a rare dew event, make it last at least 3 hours.
+                                if dew_rare_event_rand <= 5:
+                                    dew_rare_event = 3
+                                    dew_frost_event = True
+                        else:
+                            dew_frost_event = False
+                        # Next, determine if the dew frost event is dew or frost by looking at the current temperature
+                        if dew_frost_event:
+                            if current_temperature < 32 or (last_dew_event == 'Frost' and current_temperature < 36): # last_dew_event is used to prevent flip flopping
+                                current_dew_frost_event, last_dew_event = 'Frost', 'Frost'
+                            else:
+                                current_dew_frost_event, last_dew_event = 'Dew', 'Dew'
+                        else:
+                            current_dew_frost_event, last_dew_event = '', ''
+                        daily_dew_frost.append(current_dew_frost_event)
+                    monthly_dew_frost.append(daily_dew_frost)
+                yearly_dew_frost.append(monthly_dew_frost)
+            total_dew_frost.append(yearly_dew_frost)
+        self.usable_hourly_dew_event = total_dew_frost
+
+    def generate_fog(self, temperature_param_data, precipitation_type_param_data):
+        # Determine if fog should be present based on dew point, temperature, and time until next rain storm / since last rain storm
+        # Fog should form when dew point and temperature are close together
+        # Fog should not form during rain storms but should form during some snow storms
+        hours_since_storm = 0
+        hours_until_storm = 0
+        fog_during_precipitation = 0
+        upcoming_storm = 'Default'
+        total_fog = []
+        for year in range(calc_years):
+            yearly_fog = []
+            for month in range(months_per_year):
+                monthly_fog = []
+                for day in range(days_per_month):
+                    daily_fog = []
+                    for hour in range(hours_per_day):
+                        # If there is a fog_during_precipitation event, always have fog
+                        if fog_during_precipitation > 0:
+                            fog_during_precipitation -= 1
+                            fog = 'Fog'
+                        else:
+                            # Check if the dew point is close enough to the temperature for fog to form
+                            if self.usable_hourly_dew_point[year][month][day][hour] >= temperature_param_data[year][month][day][hour] * 0.95:
+                                # If a storm is active, set hours_since_storm back to 0
+                                if precipitation_type_param_data[year][month][day][hour] != '':
+                                    hours_since_storm = 0
+                                # If a storm isn't active, add one to hours_since_storm and calculate how long until the next storm if it is unknown
+                                else:
+                                    hours_since_storm += 1
+                                    if hours_until_storm > 0:
+                                        hours_until_storm -= 1
+                                    else:
+                                        loop_year = year
+                                        loop_month = month
+                                        loop_day = day
+                                        loop_hour = hour
+                                        while True:
+                                            # Check if loop_year is at the end of the calc_years. If so, give a default value for ending_interpolation_temp
+                                            if loop_year < calc_years:
+                                                # Check if loop_month needs to roll over to the next year
+                                                if loop_month < months_per_year:
+                                                    # Check if loop_day needs to roll over to the next month
+                                                    if loop_day < days_per_month:
+                                                        # Check if loop_hour needs to roll over to the next day
+                                                        if loop_hour < hours_per_day:
+                                                            if precipitation_type_param_data[loop_year][loop_month][loop_day][loop_hour] == '':
+                                                                hours_until_storm += 1
+                                                                loop_hour += 1
+                                                            else:
+                                                                upcoming_storm = precipitation_type_param_data[loop_year][loop_month][loop_day][loop_hour]
+                                                                break
+                                                        else:
+                                                            loop_hour = 0
+                                                            loop_day += 1
+                                                    else:
+                                                        loop_day = 0
+                                                        loop_month += 1
+                                                else:
+                                                    loop_month = 0
+                                                    loop_year += 1
+                                            else:
+                                                break
+                                if hours_since_storm > 3 and hours_until_storm > 3:
+                                    fog = 'Fog'
+                                else:
+                                    fog_rand = random.random() * 100
+                                    if fog_rand < 50 and upcoming_storm != 'Rain' and upcoming_storm != 'Thunderstorm':
+                                        fog = 'Fog'
+                                        fog_during_precipitation = random.choice([2, 3, 4])
+                                    elif fog_rand < 15:
+                                        fog = 'Fog'
+                                        fog_during_precipitation = random.choice([2, 3, 4])
+                                    else:
+                                        fog = ''
+                            else:
+                                fog = ''
+                        daily_fog.append(fog)
+                    monthly_fog.append(daily_fog)
+                yearly_fog.append(monthly_fog)
+            total_fog.append(yearly_fog)
+        self.usable_hourly_fog = total_fog
 
 class SunData(BaseData):
     def __init__(self, sunrise, sunset):
@@ -542,10 +683,14 @@ class SunData(BaseData):
             yearly_sun.append(monthly_sun)
         self.usable_hourly = yearly_sun
 
-class WindSpeedData(BaseData):
-    def __init__(self, wind_speed):
+class WindData(BaseData):
+    def __init__(self, wind_speed, wind_dir_N, wind_dir_E, wind_dir_S, wind_dir_W):
         super().__init__()
         self.wind_speed = self.interpolate_data(wind_speed)
+        self.wind_dir_N = self.interpolate_data(wind_dir_N)
+        self.wind_dir_E = self.interpolate_data(wind_dir_E)
+        self.wind_dir_S = self.interpolate_data(wind_dir_S)
+        self.wind_dir_W = self.interpolate_data(wind_dir_W)
     
     def generate_wind_speeds(self, precipitation_param_data, sun_param_data):
         # Wind speed is based on daily average wind speed, if the sun is up, and strength of precipitation
@@ -595,16 +740,75 @@ class WindSpeedData(BaseData):
                     monthly_wind_speeds.append(daily_wind_speeds)
                 yearly_wind_speeds.append(monthly_wind_speeds)
             total_wind_speeds.append(yearly_wind_speeds)
-        self.usable_hourly = total_wind_speeds
+        self.usable_hourly_speed = total_wind_speeds
 
-class WindDirectionData(BaseData):
-    def __init__(self, north, east, south, west):
-        super().__init__()
-        self.north = self.interpolate_data(north)
-        self.east = self.interpolate_data(east)
-        self.south = self.interpolate_data(south)
-        self.west = self.interpolate_data(west)
-        self.usable_hourly = self.generate_blank_list()
+    def generate_wind_directions(self, dew_point_avg_param_data, dew_point_usable_param_data):
+        # Wind direction is determined randomly but influenced by dew point
+        wind_humdity_result_list = [x for x in range(0, 1080)] # Using 1080 to prevent issues with looping around the full 360 degrees
+        wind_humidity_step_likelihood = 1.05
+        wind_month_result_list = [x for x in range(-90, 91)]
+        wind_month_step_likelihood = 1.05
+        wind_system_length_result_list = [x for x in range (1,13)]
+        wind_system_length_step_likelihood = 1.5
+        wind_system_length = 0
+        wind_system_direction = 0
+        total_wind_directions = []
+        for year in range(calc_years):
+            yearly_wind_directions  = []
+            for month in range(months_per_year):
+                monthly_wind_directions  = []
+                for day in range(days_per_month):
+                    daily_wind_directions  = []
+                    for hour in range(hours_per_day):
+                        # First, check if there is an active wind system
+                        if wind_system_length > 0:
+                            wind_direction = wind_system_direction
+                            wind_system_length -= 1
+                        # If there isn't, create a new wind system
+                        else:
+                            # Determine the seasonal influence - More north in the fall/winter and more south in the spring/summer
+                            if month >= 4 and month <= 9:
+                                wind_direction_month_odds = self.create_weighted_list_exponential(len(wind_month_result_list), 45, wind_month_step_likelihood)
+                            else:
+                                wind_direction_month_odds = self.create_weighted_list_exponential(len(wind_month_result_list), 135, wind_month_step_likelihood)
+                            wind_direction_month_influence = random.choices(wind_month_result_list, weights = wind_direction_month_odds, k = 1)[0]
+                            # Determine if the air is more humid or less humid
+                            humidity_difference = dew_point_usable_param_data[year][month][day][hour] - dew_point_avg_param_data[month][day]
+                            # If the humidity is below average, dry air from the mountains comes in. If the humidity is above average, wet air from the ocean comes in
+                            if humidity_difference >= 0:
+                                wind_direction_humidity_odds = self.create_weighted_list_exponential(len(wind_humdity_result_list), 450 - wind_direction_month_influence, wind_humidity_step_likelihood)
+                            else:
+                                wind_direction_humidity_odds = self.create_weighted_list_exponential(len(wind_humdity_result_list), 630 + wind_direction_month_influence, wind_humidity_step_likelihood)
+                            wind_direction_angle = random.choices(wind_humdity_result_list, weights = wind_direction_humidity_odds, k = 1)[0]
+                            wind_system_length_odds = self.create_weighted_list_exponential(len(wind_system_length_result_list), 5, wind_system_length_step_likelihood)
+                            wind_system_length = random.choices(wind_system_length_result_list, weights = wind_system_length_odds, k = 1)[0]
+                            wind_direction_angle = wind_direction_angle % 360
+                            if wind_direction_angle < 23:
+                                wind_system_direction = 'S'
+                            elif wind_direction_angle < 68:
+                                wind_system_direction = 'SW'
+                            elif wind_direction_angle < 113:
+                                wind_system_direction = 'W'
+                            elif wind_direction_angle < 158:
+                                wind_system_direction = 'NW'
+                            elif wind_direction_angle < 203:
+                                wind_system_direction = 'N'
+                            elif wind_direction_angle < 248:
+                                wind_system_direction = 'NE'
+                            elif wind_direction_angle < 293:
+                                wind_system_direction = 'E'
+                            elif wind_direction_angle < 338:
+                                wind_system_direction = 'SE'
+                            else:
+                                wind_system_direction = 'S'
+                            wind_direction = wind_system_direction
+                            wind_system_length -= 1
+                        daily_wind_directions.append(wind_direction)
+                    monthly_wind_directions.append(daily_wind_directions)
+                yearly_wind_directions.append(monthly_wind_directions)
+            total_wind_directions.append(yearly_wind_directions)
+        self.usable_hourly_direction = total_wind_directions
+
 
 #### Global Variables
 # Number of days in a month and years to calculate
@@ -652,12 +856,7 @@ cloud_data = CloudData(raw_clouds_clear, raw_clouds_mostly_clear, raw_clouds_par
 precipitation_data = PrecipitationData(raw_precipitation_avg)
 sun_data = SunData(raw_sunrise, raw_sunset)
 dew_data = DewData(raw_dew_point_avg)
-wind_speed_data = WindSpeedData(raw_wind_speed)
-wind_direction_data = WindDirectionData(raw_wind_direction_north, raw_wind_direction_east, raw_wind_direction_south, raw_wind_direction_west)
-
-#### Load workbook
-workbook = load_workbook(filename="sim.xlsx")
-ws_data = workbook["Data"]
+wind_data = WindData(raw_wind_speed, raw_wind_direction_north, raw_wind_direction_east, raw_wind_direction_south, raw_wind_direction_west)
 
 #### Order of calculations
 precipitation_data.generate_precipitation()
@@ -665,61 +864,12 @@ cloud_data.generate_clouds()
 sun_data.generate_sunrise_sunset()
 temperature_data.generate_temperatures(sun_data.sunrise, sun_data.sunset, cloud_data.usable_hourly)
 dew_data.generate_dew_points(temperature_data.usable_hourly, temperature_data.avg, precipitation_data.usable_hourly_strength)
-wind_speed_data.generate_wind_speeds(precipitation_data.usable_hourly_strength, sun_data.usable_hourly)
-precipitation_data.generate_precipitation_type(temperature_data.usable_hourly, wind_speed_data.usable_hourly)
+wind_data.generate_wind_speeds(precipitation_data.usable_hourly_strength, sun_data.usable_hourly)
+precipitation_data.generate_precipitation_type(temperature_data.usable_hourly, wind_data.usable_hourly_speed)
+dew_data.generate_dew_frost(temperature_data.usable_hourly, precipitation_data.usable_hourly_strength, sun_data.sunrise, sun_data.sunset)
+dew_data.generate_fog(temperature_data.usable_hourly, precipitation_data.usable_hourly_type)
+wind_data.generate_wind_directions(dew_data.dew_point, dew_data.usable_hourly_dew_point)
 
-# To do: fog/frost, wind direction
-
-print(len(precipitation_data.usable_hourly_type[-1][-1][-1]))
-print(precipitation_data.usable_hourly_type[0][0])
-
-# clear_list = [0 for x in range(12)]
-# mostly_clear_list = [0 for x in range(12)]
-# partly_cloudy_list = [0 for x in range(12)]
-# mostly_cloudy_list = [0 for x in range(12)]
-# overcast_list = [0 for x in range(12)]
-# for year in range(calc_years):
-#     for month in range(months_per_year):
-#         for day in range(days_per_month):
-#             for hour in range(hours_per_day):
-#                 if cloud_data.usable_hourly[year][month][day][hour] == 'clear':
-#                     clear_list[month] += 1
-#                 elif cloud_data.usable_hourly[year][month][day][hour] == 'mostly clear':
-#                     mostly_clear_list[month] += 1
-#                 elif cloud_data.usable_hourly[year][month][day][hour] == 'partly cloudy':
-#                     partly_cloudy_list[month] += 1
-#                 elif cloud_data.usable_hourly[year][month][day][hour] == 'mostly cloudy':
-#                     mostly_cloudy_list[month] += 1
-#                 elif cloud_data.usable_hourly[year][month][day][hour] == 'overcast':
-#                     overcast_list[month] += 1
-#                 else:
-#                     clear_list[14]
-# clear_print =         "Clear:         "
-# mostly_clear_print =  "Mostly clear:  "
-# partly_cloudy_print = "Partly cloudy: "
-# mostly_cloudy_print = "Mostly cloudy: "
-# overcast_print =      "Overcast:      "
-# for month in range(12):
-#     clear_print += str(round((clear_list[month] / 6720) * 100)) + " - " + str(raw_clouds_clear[month]) + " | "
-#     mostly_clear_print += str(round((mostly_clear_list[month] / 6720) * 100)) + " - " + str(raw_clouds_mostly_clear[month]) + " | "
-#     partly_cloudy_print += str(round((partly_cloudy_list[month] / 6720) * 100)) + " - " + str(raw_clouds_partly_cloudy[month]) + " | "
-#     mostly_cloudy_print += str(round((mostly_cloudy_list[month] / 6720) * 100)) + " - " + str(raw_clouds_mostly_cloudy[month]) + " | "
-#     overcast_print += str(round((overcast_list[month] / 6720) * 100)) + " - " + str(raw_clouds_overcast[month]) + " | "
-# print(clear_print)
-# print(mostly_clear_print)
-# print(partly_cloudy_print)
-# print(mostly_cloudy_print)
-# print(overcast_print)
-
-# rainy_days = 0
-# dry_days = 0
-# for year in range(calc_years):
-#     for month in range(months_per_year):
-#         for day in range(days_per_month):
-#             for hour in range(hours_per_day):
-#                 if precipitation_data.usable_hourly[year][month][day][hour] > 0:
-#                     rainy_days += 1
-#                 else:
-#                     dry_days += 1
-# print("Rainy days: " + str(rainy_days) + " - " + str(round(rainy_days / (rainy_days + dry_days), 2)))
-# print("Dry days: " + str(dry_days) + " - " + str(round(dry_days / (rainy_days + dry_days), 2)))
+#### Load workbook
+workbook = load_workbook(filename="sim.xlsx")
+ws_data = workbook["Data"]
