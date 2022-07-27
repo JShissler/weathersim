@@ -1,6 +1,9 @@
+from copy import deepcopy
 import random
 import math
 from openpyxl import load_workbook
+from openpyxl.formatting.rule import ColorScale, FormatObject, Rule
+from openpyxl.styles import Font, Border, Side, Alignment, Color, PatternFill
 
 #### Classes
 class BaseData:
@@ -58,6 +61,7 @@ class TemperatureData(BaseData):
         self.usable_hourly = self.generate_blank_list()
 
     def generate_temperatures(self, sunrise_param_data, sundown_param_data, cloud_param_data):
+        print('Starting generate_temperatures')
         # Determine temperature based on sun and clouds as well as a random temperature fluctuation variable
         # Sun impact: Coldest at sunrise and temperature peak at 15:00 - Interpolation points of: Sunrise, Sunrise + 2 hours, 12:00, 15:00, sunset
         # Cloud impact: Clear and mostly clear increase temperature, partly clear has no impact, mostly cloudy and overcast reduce temperature
@@ -196,13 +200,13 @@ class TemperatureData(BaseData):
                     for hour in range(hours_per_day):
                         # Find cloud cover for the current hour and its impact
                         cloud_cover = cloud_param_data[year][month][day][hour]
-                        if cloud_cover == 'clear':
+                        if cloud_cover == 'Clear':
                             cloud_temperature_impact = random.choice([5, 6, 7])
-                        elif cloud_cover == 'mostly clear':
+                        elif cloud_cover == 'Mostly Clear':
                             cloud_temperature_impact = random.choice([2, 3, 4])
-                        elif cloud_cover == 'partly cloudy':
+                        elif cloud_cover == 'Partly Cloudy':
                             cloud_temperature_impact = random.choice([-1, 0, 1])
-                        elif cloud_cover == 'mostly cloudy':
+                        elif cloud_cover == 'Mostly Cloudy':
                             cloud_temperature_impact = random.choice([-4, -3, -2])
                         else:
                             cloud_temperature_impact = random.choice([-7, -6, -5])
@@ -228,6 +232,7 @@ class TemperatureData(BaseData):
                         # Lastly, round every temperature to two decimal places
                         rounded_hourly_temperature = round(self.usable_hourly[year][month][day][hour], 2)
                         self.usable_hourly[year][month][day][hour] = rounded_hourly_temperature
+        print('Finished generate_temperatures')
         
 class CloudData(BaseData):
     def __init__(self, clear, mostly_clear, partly_cloudy, mostly_cloudy, overcast):
@@ -239,6 +244,7 @@ class CloudData(BaseData):
         self.overcast = self.interpolate_data(overcast)
         
     def generate_clouds(self):
+        print('Starting generate_clouds')
         # Determine cloud cover per hour
         cloud_system_list = []
 
@@ -255,15 +261,15 @@ class CloudData(BaseData):
                             # Determine what type of system based on the stacking odds of each type of system
                             cloud_rand = random.random() * 100
                             if cloud_rand < self.clear[month][day]:
-                                cloud_system_type = 'clear'
+                                cloud_system_type = 'Clear'
                             elif cloud_rand < self.clear[month][day] + self.mostly_clear[month][day]:
-                                cloud_system_type = 'mostly clear'
+                                cloud_system_type = 'Mostly Clear'
                             elif cloud_rand < self.clear[month][day] + self.mostly_clear[month][day] + self.partly_cloudy[month][day]:
-                                cloud_system_type = 'partly cloudy'
+                                cloud_system_type = 'Partly Cloudy'
                             elif cloud_rand < self.clear[month][day] + self.mostly_clear[month][day] + self.partly_cloudy[month][day] + self.mostly_cloudy[month][day]:
-                                cloud_system_type = 'mostly cloudy'
+                                cloud_system_type = 'Mostly Cloudy'
                             else:
-                                cloud_system_type = 'overcast'
+                                cloud_system_type = 'Overcast'
                             # Determine the length of the system with weighted odds
                             cloud_system_type_list = [x + 1 for x in range(12)]
                             cloud_system_length_odds = self.create_weighted_list_exponential(12, 5, 1.2, 1.2)
@@ -279,6 +285,7 @@ class CloudData(BaseData):
                 yearly_clouds.append(monthly_clouds)
             total_clouds.append(yearly_clouds)
         self.usable_hourly = total_clouds
+        print('Finished generate_clouds')
                             
 class PrecipitationData(BaseData):
     def __init__(self, precipitation):
@@ -286,6 +293,7 @@ class PrecipitationData(BaseData):
         self.precipitation = self.interpolate_data(precipitation)
 
     def generate_precipitation(self):
+        print('Starting generate_precipitation')
         # Determine which hours should have precipitation - Target precipitation frequency should be 0.33
         active_storm = False
 
@@ -357,12 +365,15 @@ class PrecipitationData(BaseData):
                 yearly_precipitation_strength.append(monthly_precipitation_strength)
             total_precipitation_strength.append(yearly_precipitation_strength)
         self.usable_hourly_strength = total_precipitation_strength
+        print('Finished generate_precipitation')
 
     def generate_precipitation_type(self, temperature_param_data, wind_speed_param_data):
+        print('Starting generate_precipitation_type')
         # Determine what type of weather event each precipitation should be
         # Based on temperature, wind speed, and precipitation strength - Shifting scale of event likelihood based on temperature and strength
         # A temperature below 16 is always snow and above 32 is always rain - in between there is a chance of sleet or freezing rain
         # Wind used to determine snowstorm type - Snow or blizzard
+        thunderstorm_likelihood_modifier_by_month = [0.1, 0.3, 0.5, 0.7, 0.9, 1, 1, 0.9, 0.7, 0.5, 0.3, 0.1]
         total_precipitation_type = []
         for year in range(calc_years):
             yearly_precipitation_type = []
@@ -397,18 +408,22 @@ class PrecipitationData(BaseData):
                             elif weather_event_broad_type == 'Rain':
                                 thunder_rand = random.random() * 11 # 11 is used for there to still be a slight chance of a 10 strength storm with no thunder
                                 if thunder_rand <= current_storm_strength:
-                                    weather_event = 'Thunderstorm'
+                                    if random.random() <= thunderstorm_likelihood_modifier_by_month[month]:
+                                        weather_event = 'Thunderstorm'
+                                    else:
+                                      weather_event = 'Rain'
                                 else:
                                     weather_event = 'Rain'
                             else:
                                 weather_event = weather_event_broad_type
                         else:
-                            weather_event = ''
+                            weather_event = 0
                         daily_precipitation_type.append(weather_event)
                     monthly_precipitation_type.append(daily_precipitation_type)
                 yearly_precipitation_type.append(monthly_precipitation_type)
             total_precipitation_type.append(yearly_precipitation_type)
         self.usable_hourly_type = total_precipitation_type
+        print('Finished generate_precipitation_type')
 
 class DewData(BaseData):
     def __init__(self, dew_point):
@@ -416,6 +431,7 @@ class DewData(BaseData):
         self.dew_point = self.interpolate_data(dew_point)
 
     def generate_dew_points(self, temperature_param_data, temperature_day_average, precipitation_param_data):
+        print('Starting generate_dew_points')
         # Dew point is generated based on: The average daily dew point in self.dew, existing generated precipitation, and a wandering variation
         # The wandering variation should be designed to make the hourly dew point closer to max before and after a storm and then more random between storms
         wandering_variation = 0
@@ -504,8 +520,10 @@ class DewData(BaseData):
                 yearly_dew_point.append(monthly_dew_point)
             total_dew_point.append(yearly_dew_point)
         self.usable_hourly_dew_point = total_dew_point
+        print('Finished generate_dew_points')
 
     def generate_dew_frost(self, temperature_param_data, precipitation_param_data, sunrise_param_data, sundown_param_data):
+        print('Starting generate_dew_frost')
         # Determine when dew and frost should form based on temperature, dew point, and sunrise/sunset
         # Temperature is used to determine if the air is saturated enough to form dew or frost by comparing the dew point and temperature
         # Additionally, temperature is used to determined if it should be dew or frost that is formed
@@ -562,8 +580,10 @@ class DewData(BaseData):
                 yearly_dew_frost.append(monthly_dew_frost)
             total_dew_frost.append(yearly_dew_frost)
         self.usable_hourly_dew_event = total_dew_frost
+        print('Finished generate_dew_frost')
 
     def generate_fog(self, temperature_param_data, precipitation_type_param_data):
+        print('Starting generate_fog')
         # Determine if fog should be present based on dew point, temperature, and time until next rain storm / since last rain storm
         # Fog should form when dew point and temperature are close together
         # Fog should not form during rain storms but should form during some snow storms
@@ -587,7 +607,7 @@ class DewData(BaseData):
                             # Check if the dew point is close enough to the temperature for fog to form
                             if self.usable_hourly_dew_point[year][month][day][hour] >= temperature_param_data[year][month][day][hour] * 0.95:
                                 # If a storm is active, set hours_since_storm back to 0
-                                if precipitation_type_param_data[year][month][day][hour] != '':
+                                if precipitation_type_param_data[year][month][day][hour] != 0:
                                     hours_since_storm = 0
                                 # If a storm isn't active, add one to hours_since_storm and calculate how long until the next storm if it is unknown
                                 else:
@@ -608,7 +628,7 @@ class DewData(BaseData):
                                                     if loop_day < days_per_month:
                                                         # Check if loop_hour needs to roll over to the next day
                                                         if loop_hour < hours_per_day:
-                                                            if precipitation_type_param_data[loop_year][loop_month][loop_day][loop_hour] == '':
+                                                            if precipitation_type_param_data[loop_year][loop_month][loop_day][loop_hour] == 0:
                                                                 hours_until_storm += 1
                                                                 loop_hour += 1
                                                             else:
@@ -644,6 +664,7 @@ class DewData(BaseData):
                 yearly_fog.append(monthly_fog)
             total_fog.append(yearly_fog)
         self.usable_hourly_fog = total_fog
+        print('Finished generate_fog')
 
 class SunData(BaseData):
     def __init__(self, sunrise, sunset):
@@ -652,12 +673,16 @@ class SunData(BaseData):
         self.sunset = self.interpolate_data(sunset)
 
     def generate_sunrise_sunset(self):
+        print('Starting generate_sunrise_sunset')
         # Sunrises and sunsets will always follow the same pattern - Only need to determine one year
         # Presented as 0 for sun is down, 1 for sun is up, and a decimal for when in that hour the sun rose or set
         yearly_sun = []
+        yearly_sun_readable = []
         for month in range(months_per_year):
+            monthly_sun_readable = []
             monthly_sun = []
             for day in range(days_per_month):
+                daily_sun_readable = []
                 daily_sun = []
                 for hour in range(hours_per_day):
                     # Check to see if the sunrise is occurring in the current hour, if so, append the decimal hour
@@ -670,7 +695,7 @@ class SunData(BaseData):
                         decimal_of_hour = math.modf(self.sunset[month][day])[0]
                         decimal_of_hour = round(decimal_of_hour, 2)
                         daily_sun.append(decimal_of_hour)
-                    # Check to see if it is before sunset, append a 0 for the sun being down
+                    # Check to see if it is before sunrise, append a 0 for the sun being down
                     elif hour <= self.sunrise[month][day]:
                         daily_sun.append(0)
                     # Check to see if the hour is between sunrise and sunset, if so, append a 1 for the sun being up
@@ -679,9 +704,170 @@ class SunData(BaseData):
                     # Check to see if it after sundown, append a 0 for the sun being down
                     elif hour >= self.sunset[month][day]:
                         daily_sun.append(0)
+                # Convert the daily_sun data in a more readable format
+                daily_sun_readable = daily_sun.copy()
+                loop_hour = 0
+                hours_of_sunlight = 0
+                total_degrees = 0 # Used to track the position of the sun in the sky at the start of each hour
+                while loop_hour < hours_per_day:
+                    if daily_sun_readable[loop_hour] == 1:
+                        hours_of_sunlight += 1
+                    elif daily_sun_readable[loop_hour] > 0:
+                        hours_of_sunlight += 1 - daily_sun_readable[loop_hour]
+                    loop_hour += 1
+                degrees_per_hour = 180 / hours_of_sunlight # How far across the sky the sun travels in an hour
+                for hour in range(hours_per_day):
+                    if daily_sun_readable[hour] == 0:
+                        daily_sun_readable[hour] = ''
+                    else:
+                        if daily_sun_readable[hour - 1] == '':
+                            total_degrees += (1 - daily_sun_readable[hour]) * degrees_per_hour
+                            daily_sun_readable[hour] = f'{hour}:{round(daily_sun_readable[hour] * 60)}'
+                        elif daily_sun_readable[hour] == 1:
+                            daily_sun_readable[hour] = f'{round(total_degrees)}d'
+                            total_degrees += degrees_per_hour
+                        else:
+                            daily_sun_readable[hour] = f'{hour}:{round(daily_sun_readable[hour] * 60)}'
+                monthly_sun_readable.append(daily_sun_readable)
                 monthly_sun.append(daily_sun)
+            yearly_sun_readable.append(monthly_sun_readable)
             yearly_sun.append(monthly_sun)
-        self.usable_hourly = yearly_sun
+        self.readable_sun_hourly = yearly_sun_readable
+        self.usable_sun_decimal_hourly = yearly_sun
+        print('Finished generate_sunrise_sunset')
+    
+    def generate_moonrise_moonset(self):
+        print('Starting generate_moonrise_moonset')
+        # Moon should cycle should be a full 28 days - e.g. Full moon -> 14 days -> New Moon -> 14 Days -> Full Moon
+        # Moonset on a full moon should be roughly equal to the moonrise on a new moon       
+        unadjusted_moonrise = deepcopy(self.sunset)
+        unadjusted_moonset = deepcopy(self.sunrise)
+        moonrise = []
+        moonset = []
+        for month in range(months_per_year):
+            monthly_moonrise = []
+            monthly_moonset = []
+            for day in range(days_per_month):
+                monthly_moonrise.append(unadjusted_moonrise[month][day] - 1)
+                monthly_moonset.append(unadjusted_moonset[month][day] + 1)
+            moonrise.append(monthly_moonrise)
+            moonset.append(monthly_moonset)
+        yearly_moon = []
+        for month in range(months_per_year):
+            monthly_moon = []
+            for day in range(days_per_month):
+                daily_moon = []
+                for hour in range(hours_per_day):
+                    # Check to see if the moonrise is occurring in the current hour, if so, append the decimal hour
+                    if hour <= moonrise[month][day] and hour + 1 >= moonrise[month][day]:
+                        decimal_of_hour = math.modf(moonrise[month][day])[0]
+                        decimal_of_hour = round(decimal_of_hour, 2)
+                        daily_moon.append(decimal_of_hour)
+                    # Check to see if the moonset is occuring in the current hour, if so, append the decimal hour.
+                    elif hour <= moonset[month][day] and hour + 1 >= moonset[month][day]:
+                        decimal_of_hour = math.modf(moonset[month][day])[0]
+                        decimal_of_hour = round(decimal_of_hour, 2)
+                        daily_moon.append(decimal_of_hour)
+                    # Check to see if it is before moonset, append a 1 for the moon being up
+                    elif hour <= moonset[month][day]:
+                        daily_moon.append(1)
+                    # Check to see if the hour is between moonset and moonrise, if so, append a 0 for the moon being down
+                    elif hour >= moonset[month][day] and hour < moonrise[month][day]:
+                        daily_moon.append(0)
+                    # Check to see if it after moonrise, append a 1 for the moon being up
+                    elif hour >= moonrise[month][day]:
+                        daily_moon.append(1)
+                monthly_moon.append(daily_moon)
+            yearly_moon.append(monthly_moon)
+        self.usable_moon_decimal_hourly = yearly_moon
+        hours_of_moonlight = 0
+        total_degrees = 0
+        yearly_moon_readable = []
+        for month in range(months_per_year):
+            monthly_moon_readable = []
+            for day in range(days_per_month):
+                daily_moon_readable = []
+                for hour in range(hours_per_day):
+                    # Get current, next, and prior hour amounts
+                    current_hour_amount = self.usable_moon_decimal_hourly[month][day][hour]
+                    if hour == hours_per_day - 1:
+                        next_hour_amount = 1
+                    else:
+                        next_hour_amount = self.usable_moon_decimal_hourly[month][day][hour + 1]
+                    if hour == 0:
+                        prior_hour_amount = 1
+                    else:
+                        prior_hour_amount = self.usable_moon_decimal_hourly[month][day][hour - 1]                           
+                    # Feed default amounts for beginning and end indexes
+                    if month == 0 and day == 0 and hour == 0:
+                        hours_of_moonlight = 13.34
+                        degrees_per_hour = 180 / hours_of_moonlight
+                        total_degrees = 6.74 * degrees_per_hour
+                        daily_moon_readable.append(f'{round(total_degrees)}d')
+                    elif month == months_per_year - 1 and day == days_per_month - 1 and hour == hours_per_day - 1:
+                        daily_moon_readable.append(f'{round(total_degrees)}d')
+                    # Cycle through and determine hours_of_moonlight every time a non-0 is discovered after a 0 and create the moonrise time
+                    elif current_hour_amount > 0 and prior_hour_amount == 0:
+                        loop_month = month
+                        loop_day = day
+                        loop_hour = hour
+                        while True:
+                            # Check if loop_month is at the end of the months_per_year. If so, give a default value for hours_of_moonlight
+                            if loop_month < months_per_year:
+                                # Check if loop_day needs to roll over to the next month
+                                if loop_day < days_per_month:
+                                    # Check if loop_hour needs to roll over to the next day
+                                    if loop_hour < hours_per_day:
+                                        if self.usable_moon_decimal_hourly[loop_month][loop_day][loop_hour] == 1:
+                                            hours_of_moonlight += 1
+                                            loop_hour += 1
+                                        elif self.usable_moon_decimal_hourly[loop_month][loop_day][loop_hour] > 0:
+                                            hours_of_moonlight += 1 - self.usable_moon_decimal_hourly[loop_month][loop_day][loop_hour]
+                                            loop_hour += 1
+                                        else:
+                                            if day == 27:
+                                                moon_fullness = 100
+                                                daily_moon_readable[hour - 1] = f'{moon_fullness}% - Full'
+                                            elif day == 13:
+                                                moon_fullness = 0
+                                                daily_moon_readable[hour - 1] = f'{moon_fullness}% - New'
+                                            elif day < 14:
+                                                moon_fullness = round((1-((day+1)%14/14))*100)
+                                                daily_moon_readable[hour - 1] = f'{moon_fullness}% - Waning'
+                                            else:
+                                                moon_fullness = round(((day+1)%14/14)*100)
+                                                daily_moon_readable[hour - 1] = f'{moon_fullness}% - Waxing'
+                                            daily_moon_readable.append(f'{hour}:{round(current_hour_amount * 60)}')
+                                            degrees_per_hour = 180 / hours_of_moonlight
+                                            total_degrees += degrees_per_hour * (1 - current_hour_amount)
+                                            break
+                                    else:
+                                        loop_hour = 0
+                                        loop_day += 1
+                                else:
+                                    loop_day = 0
+                                    loop_month += 1
+                            else:
+                                hours_of_moonlight = 13.34
+                                daily_moon_readable.append(f'{hour}:{round(current_hour_amount * 60)}')
+                                degrees_per_hour = 180 / hours_of_moonlight
+                                total_degrees += degrees_per_hour * (1 - current_hour_amount)
+                                break
+                    # If a 0 is found after a non-0 number, set hours_of_moonlight and total_degrees back to 0
+                    elif current_hour_amount > 0 and next_hour_amount == 0:
+                        daily_moon_readable.append(f'{hour}:{round(current_hour_amount * 60)}')
+                        hours_of_moonlight = 0
+                        total_degrees = 0
+                    # If a 1 is found, show the sun as up and its location in the sky
+                    elif current_hour_amount == 1:
+                        daily_moon_readable.append(f'{round(total_degrees)}d')
+                        total_degrees += degrees_per_hour
+                    else:
+                        daily_moon_readable.append('')
+                monthly_moon_readable.append(daily_moon_readable)
+            yearly_moon_readable.append(monthly_moon_readable)
+        self.readable_moon_hourly = yearly_moon_readable
+        print('Finished generate_moonrise_moonset')
 
 class WindData(BaseData):
     def __init__(self, wind_speed, wind_dir_N, wind_dir_E, wind_dir_S, wind_dir_W):
@@ -693,6 +879,7 @@ class WindData(BaseData):
         self.wind_dir_W = self.interpolate_data(wind_dir_W)
     
     def generate_wind_speeds(self, precipitation_param_data, sun_param_data):
+        print('Starting generate_wind_speeds')
         # Wind speed is based on daily average wind speed, if the sun is up, and strength of precipitation
         # A greater variation in wind while the sun is up
         # An increased chance of strong windows during high precipitation
@@ -741,8 +928,10 @@ class WindData(BaseData):
                 yearly_wind_speeds.append(monthly_wind_speeds)
             total_wind_speeds.append(yearly_wind_speeds)
         self.usable_hourly_speed = total_wind_speeds
+        print('Finished generate_wind_speeds')
 
     def generate_wind_directions(self, dew_point_avg_param_data, dew_point_usable_param_data):
+        print('Starting generate_wind_directions')
         # Wind direction is determined randomly but influenced by dew point
         wind_humdity_result_list = [x for x in range(0, 1080)] # Using 1080 to prevent issues with looping around the full 360 degrees
         wind_humidity_step_likelihood = 1.05
@@ -808,7 +997,319 @@ class WindData(BaseData):
                 yearly_wind_directions.append(monthly_wind_directions)
             total_wind_directions.append(yearly_wind_directions)
         self.usable_hourly_direction = total_wind_directions
+        print('Finished generate_wind_directions')
 
+class BaseExcel:
+    def __init__(self, workbook_file, worksheet_name):
+        self.workbook_file = workbook_file
+        self.workbook = load_workbook(workbook_file)
+        self.worksheet = self.workbook[worksheet_name]
+        self.date_column = 1
+        self.start_row = 2
+        self.rows_of_info_per_day = 9
+
+    def populate_defaults(self, start_year):
+        print('Starting populate_defaults')
+        weather_event_labels = ['Temperature', 'Humidity', 'Storm Strength', 'Storm Type', 'Wind Speed', 'Wind Direction', 'Clouds', 'Sun', 'Moon']
+        active_row = self.start_row
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    #### Date
+                    # Merge and populate date name
+                    self.worksheet.merge_cells(start_column = 1, start_row = active_row, end_column = 1, end_row = active_row + self.rows_of_info_per_day - 1)
+                    merged_date_cell = self.worksheet.cell(column = 1, row = active_row)
+                    merged_date_cell.value = f'{month + 1}/{day + 1}/{year + start_year}'
+                    # Align merged date to center
+                    merged_date_cell.alignment = Alignment(horizontal='center', vertical='center')
+                    active_row += self.rows_of_info_per_day
+                    #### Weather event labels
+                    for label_index in range(len(weather_event_labels)):
+                        self.worksheet.cell(column=self.date_column + 1, row=active_row + label_index).value = weather_event_labels[label_index]
+                        self.worksheet.cell(column=self.date_column + 1, row=active_row + label_index).alignment = Alignment(horizontal='right')
+        print('Finished populate_defaults')
+
+    def populate_standard_row(self, row_to_populate, param_data):
+        print('Starting populate_standard_row - ' + str(row_to_populate))
+        active_row = self.start_row + row_to_populate - 1
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).value = param_data[year][month][day][hour]
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).style = 'Comma'
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).font = Font(name='Calibri', size=11)
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).alignment = Alignment(horizontal='center')
+                    active_row += self.rows_of_info_per_day
+        print('Finished populate_standard_row - ' + str(row_to_populate))
+
+    def populate_precipitation_type_row(self, row_to_populate, precipitation_param_data):
+        print('Starting populate_precipitation_type_row')
+        active_row = self.start_row + row_to_populate - 1
+        converted_names = deepcopy(precipitation_param_data)
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        if precipitation_param_data[year][month][day][hour] == 'Thunderstorm':
+                            converted_names[year][month][day][hour] = 'Tstorm'
+                        elif precipitation_param_data[year][month][day][hour] == 'Freezing Rain':
+                            converted_names[year][month][day][hour] = 'Fr Rain'
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).value = converted_names[year][month][day][hour]
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).style = 'Comma'
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).font = Font(name='Calibri', size=11)
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).alignment = Alignment(horizontal='center')
+                    active_row += self.rows_of_info_per_day
+        print('Finished populate_precipitation_type_row')
+
+    def populate_cloud_row(self, row_to_populate, cloud_param_data):
+        print('Starting populate_cloud_row')
+        active_row = self.start_row + row_to_populate - 1
+        converted_names = deepcopy(cloud_param_data)
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        if cloud_param_data[year][month][day][hour] == 'Mostly Clear':
+                            converted_names[year][month][day][hour] = 'M Clear'
+                        elif cloud_param_data[year][month][day][hour] == 'Partly Cloudy':
+                            converted_names[year][month][day][hour] = 'P Cloudy'
+                        elif cloud_param_data[year][month][day][hour] == 'Mostly Cloudy':
+                            converted_names[year][month][day][hour] = 'M Cloudy'
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).value = converted_names[year][month][day][hour]
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).style = 'Comma'
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).font = Font(name='Calibri', size=11)
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).alignment = Alignment(horizontal='center')
+                    active_row += self.rows_of_info_per_day
+        print('Finished populate_cloud_row')
+
+    def populate_sun_moon_row(self, row_to_populate, sun_moon_param_data):
+        print('Starting populate_sun_moon_row - ' + str(row_to_populate))
+        active_row = self.start_row + row_to_populate - 1
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        if '-' in sun_moon_param_data[month][day][hour]:
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).value = sun_moon_param_data[month][day][hour]
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).style = 'Comma'
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).font = Font(name='Calibri', size=11)
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).alignment = Alignment(horizontal='right')
+                        else:
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).value = sun_moon_param_data[month][day][hour]
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).style = 'Comma'
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).font = Font(name='Calibri', size=11)
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).alignment = Alignment(horizontal='center')
+                    active_row += self.rows_of_info_per_day
+        print('Finished populate_sun_moon_row - ' + str(row_to_populate))
+
+    def color_scale(self, row_to_color_scale, param_data):
+        print('Starting color_scale - ' + str(row_to_color_scale))
+        num_min = param_data[0][0][0][0]
+        num_max = param_data[0][0][0][0]
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        hour_temp = param_data[year][month][day][hour]
+                        if hour_temp > num_max:
+                            num_max = hour_temp
+                        elif hour_temp < num_min:
+                            num_min = hour_temp
+
+        active_row = self.start_row + row_to_color_scale - 1
+        min_color = FormatObject(type='num', val=num_min)
+        max_color = FormatObject(type='num', val=num_max)
+        if row_to_color_scale == 1:
+            colors = [Color('00B0F0'), Color('FF6600')]
+        elif row_to_color_scale == 2:
+            colors = [Color('833C0C'), Color('9BC2E6')]
+        elif row_to_color_scale == 5:
+            colors = [Color('FFEF9C'), Color('FF7128')]
+        color_scale = ColorScale(cfvo=[min_color, max_color], color=colors)
+        temperature_rule = Rule(type='colorScale', colorScale=color_scale)
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    converted_selection = 'C' + str(active_row) + ':Z' + str(active_row)
+                    self.worksheet.conditional_formatting.add(converted_selection, temperature_rule)
+                    active_row += self.rows_of_info_per_day
+        print('Finished color_scale - ' + str(row_to_color_scale))
+        
+    def precipitation_strength_fill(self, row_to_fill, precipitation_param_data):
+        print('Starting precipitation_strength_fill')
+        active_row = self.start_row + row_to_fill - 1
+        whiteFill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+        oneFill = PatternFill(start_color='a6b8da', end_color='a6b8da', fill_type='solid')
+        twoFill = PatternFill(start_color='97aacd', end_color='97aacd', fill_type='solid')
+        threeFill = PatternFill(start_color='889cc0', end_color='889cc0', fill_type='solid')
+        fourFill = PatternFill(start_color='798db3', end_color='798db3', fill_type='solid')
+        fiveFill = PatternFill(start_color='6a7fa6', end_color='6a7fa6', fill_type='solid')
+        sixFill = PatternFill(start_color='5c7199', end_color='5c7199', fill_type='solid')
+        sevenFill = PatternFill(start_color='4d628c', end_color='4d628c', fill_type='solid')
+        eightFill = PatternFill(start_color='3e547f', end_color='3e547f', fill_type='solid')
+        nineFill = PatternFill(start_color='2f4672', end_color='2f4672', fill_type='solid')
+        tenFill = PatternFill(start_color='203764', end_color='203764', fill_type='solid')
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        current_strength = precipitation_param_data[year][month][day][hour]
+                        match current_strength:
+                            case 0:
+                                self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = whiteFill
+                            case 1:
+                                self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = oneFill
+                            case 2:
+                                self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = twoFill
+                            case 3:
+                                self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = threeFill
+                            case 4:
+                                self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = fourFill
+                            case 5:
+                                self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = fiveFill
+                            case 6:
+                                self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = sixFill
+                            case 7:
+                                self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = sevenFill
+                            case 8:
+                                self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = eightFill
+                            case 9:
+                                self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = nineFill
+                            case 10:
+                                self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = tenFill
+                    active_row += self.rows_of_info_per_day
+        print('Finished precipitation_strength_fill')
+
+    def precipitation_type_fill(self, row_to_fill, precipitation_param_data):
+        print('Starting precipitation_type_fill')
+        active_row = self.start_row + row_to_fill - 1
+        whiteFill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+        snowFill = PatternFill(start_color='DDEBF7', end_color='DDEBF7', fill_type='solid')
+        sleetFill = PatternFill(start_color='BDD7EE', end_color='BDD7EE', fill_type='solid')
+        frRainFill = PatternFill(start_color='9BC2E6', end_color='9BC2E6', fill_type='solid')
+        rainFill = PatternFill(start_color='2F75B5', end_color='2F75B5', fill_type='solid')
+        tstormFill = PatternFill(start_color='1F4E78', end_color='1F4E78', fill_type='solid')
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        if precipitation_param_data[year][month][day][hour] == 0:
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = whiteFill
+                        elif precipitation_param_data[year][month][day][hour] == 'Snow':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = snowFill
+                        elif precipitation_param_data[year][month][day][hour] == 'Sleet':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = sleetFill
+                        elif precipitation_param_data[year][month][day][hour] == 'Freezing Rain':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = frRainFill
+                        elif precipitation_param_data[year][month][day][hour] == 'Rain':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = rainFill
+                        elif precipitation_param_data[year][month][day][hour] == 'Thunderstorm':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = tstormFill
+                    active_row += self.rows_of_info_per_day
+        print('Finished precipitation_type_fill')
+
+    def wind_direction_fill(self, row_to_fill):
+        print('Starting wind_direction_fill')
+        active_row = self.start_row + row_to_fill - 1
+        whiteFill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = whiteFill
+
+    def cloud_fill(self, row_to_fill, cloud_param_data):
+        print('Starting cloud_fill')
+        active_row = self.start_row + row_to_fill - 1
+        clearFill = PatternFill(start_color='DDEBF7', end_color='DDEBF7', fill_type='solid')
+        mClearFill = PatternFill(start_color='BDD7EE', end_color='BDD7EE', fill_type='solid')
+        pCloudyFill = PatternFill(start_color='9BC2E6', end_color='9BC2E6', fill_type='solid')
+        mCloudyFill = PatternFill(start_color='2F75B5', end_color='2F75B5', fill_type='solid')
+        overcastFill = PatternFill(start_color='1F4E78', end_color='1F4E78', fill_type='solid')
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        if cloud_param_data[year][month][day][hour] == 'Clear':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = clearFill
+                        elif cloud_param_data[year][month][day][hour] == 'Mostly Clear':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = mClearFill
+                        elif cloud_param_data[year][month][day][hour] == 'Partly Cloudy':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = pCloudyFill
+                        elif cloud_param_data[year][month][day][hour] == 'Mostly Cloudy':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = mCloudyFill
+                        elif cloud_param_data[year][month][day][hour] == 'Overcast':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = overcastFill
+                    active_row += self.rows_of_info_per_day
+        print('Finished cloud_fill')
+
+    def sun_fill(self, row_to_fill, sun_param_data):
+        print('Starting sun_fill')
+        active_row = self.start_row + row_to_fill - 1
+        riseSetFill = PatternFill(start_color='FFE699', end_color='FFE699', fill_type='solid')
+        upFill = PatternFill(start_color='FFD966', end_color='FFD966', fill_type='solid')
+        downFill = PatternFill(start_color='D0CECE', end_color='D0CECE', fill_type='solid')
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        if ':' in sun_param_data[month][day][hour]:
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = riseSetFill
+                        elif 'd' in sun_param_data[month][day][hour]:
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = upFill
+                        else:
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = downFill
+                    active_row += self.rows_of_info_per_day
+        print('Finished sun_fill')
+
+    def moon_fill(self, row_to_fill, moon_param_data):
+        print('Starting moon_fill')
+        active_row = self.start_row + row_to_fill - 1
+        riseSetFill = PatternFill(start_color='AEAAAA', end_color='AEAAAA', fill_type='solid')
+        upFill = PatternFill(start_color='757171', end_color='757171', fill_type='solid')
+        downFill = PatternFill(start_color='FFF2CC', end_color='FFF2CC', fill_type='solid')
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        if ':' in moon_param_data[month][day][hour]:
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = riseSetFill
+                        elif 'd' in moon_param_data[month][day][hour]:
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = upFill
+                        else:
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = downFill
+                    active_row += self.rows_of_info_per_day
+        print('Finished moon_fill')
+
+    def populate_borders(self):
+        print('Starting populate_borders')
+        medium = Side(border_style='medium', color='000000')
+        active_row = self.start_row
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    # Separate dates with a border
+                    column = 1
+                    if active_row != self.start_row:
+                        while column <= 26:
+                            self.worksheet.cell(column=column, row=active_row).border = Border(top=medium)
+                            column += 1
+                    active_row += self.rows_of_info_per_day
+        print('Finished populate_borders')
+
+    def save_workbook(self):
+        print('Saving Workbook')
+        self.workbook.save(self.workbook_file)
+        print('Workbook saved')
 
 #### Global Variables
 # Number of days in a month and years to calculate
@@ -850,26 +1351,55 @@ raw_wind_direction_east = [10, 10, 13, 18, 18, 18, 11, 12, 17, 17, 13, 12, 10]
 raw_wind_direction_south = [16, 16, 18, 21, 24, 28, 33, 35, 36, 28, 22, 18, 16]
 raw_wind_direction_west = [46, 42, 37, 31, 33, 33, 37, 33, 22, 28, 35, 42, 46]
 
-##### Declare classes and interpolate the data
+##### Declare data classes and interpolate the data
 temperature_data = TemperatureData(raw_temp_avg_low, raw_temp_avg_avg, raw_temp_avg_high)
 cloud_data = CloudData(raw_clouds_clear, raw_clouds_mostly_clear, raw_clouds_partly_cloudy, raw_clouds_mostly_cloudy, raw_clouds_overcast)
 precipitation_data = PrecipitationData(raw_precipitation_avg)
-sun_data = SunData(raw_sunrise, raw_sunset)
+sun_moon_data = SunData(raw_sunrise, raw_sunset)
 dew_data = DewData(raw_dew_point_avg)
 wind_data = WindData(raw_wind_speed, raw_wind_direction_north, raw_wind_direction_east, raw_wind_direction_south, raw_wind_direction_west)
 
-#### Order of calculations
+#### Order of data calculations
 precipitation_data.generate_precipitation()
 cloud_data.generate_clouds()
-sun_data.generate_sunrise_sunset()
-temperature_data.generate_temperatures(sun_data.sunrise, sun_data.sunset, cloud_data.usable_hourly)
+sun_moon_data.generate_sunrise_sunset()
+sun_moon_data.generate_moonrise_moonset()
+temperature_data.generate_temperatures(sun_moon_data.sunrise, sun_moon_data.sunset, cloud_data.usable_hourly)
 dew_data.generate_dew_points(temperature_data.usable_hourly, temperature_data.avg, precipitation_data.usable_hourly_strength)
-wind_data.generate_wind_speeds(precipitation_data.usable_hourly_strength, sun_data.usable_hourly)
+wind_data.generate_wind_speeds(precipitation_data.usable_hourly_strength, sun_moon_data.usable_sun_decimal_hourly)
 precipitation_data.generate_precipitation_type(temperature_data.usable_hourly, wind_data.usable_hourly_speed)
-dew_data.generate_dew_frost(temperature_data.usable_hourly, precipitation_data.usable_hourly_strength, sun_data.sunrise, sun_data.sunset)
+dew_data.generate_dew_frost(temperature_data.usable_hourly, precipitation_data.usable_hourly_strength, sun_moon_data.sunrise, sun_moon_data.sunset)
 dew_data.generate_fog(temperature_data.usable_hourly, precipitation_data.usable_hourly_type)
 wind_data.generate_wind_directions(dew_data.dew_point, dew_data.usable_hourly_dew_point)
 
 #### Load workbook
-workbook = load_workbook(filename="sim.xlsx")
-ws_data = workbook["Data"]
+workbook = 'sim.xlsx'
+worksheet = 'Data'
+
+#### Declare Excel classes
+base_excel = BaseExcel(workbook, worksheet)
+
+#### Order of Excel population
+base_excel.populate_defaults(3304)
+base_excel.populate_standard_row(1, temperature_data.usable_hourly)
+base_excel.populate_standard_row(2, dew_data.usable_hourly_dew_point)
+base_excel.populate_standard_row(3, precipitation_data.usable_hourly_strength)
+base_excel.populate_precipitation_type_row(4, precipitation_data.usable_hourly_type)
+base_excel.populate_standard_row(5, wind_data.usable_hourly_speed)
+base_excel.populate_standard_row(6, wind_data.usable_hourly_direction)
+base_excel.populate_cloud_row(7, cloud_data.usable_hourly)
+base_excel.populate_sun_moon_row(8, sun_moon_data.readable_sun_hourly)
+base_excel.populate_sun_moon_row(9, sun_moon_data.readable_moon_hourly)
+base_excel.populate_borders()
+base_excel.color_scale(1, temperature_data.usable_hourly)
+base_excel.color_scale(2, dew_data.usable_hourly_dew_point)
+base_excel.precipitation_strength_fill(3, precipitation_data.usable_hourly_strength)
+base_excel.precipitation_type_fill(4, precipitation_data.usable_hourly_type)
+base_excel.color_scale(5, wind_data.usable_hourly_speed)
+base_excel.wind_direction_fill(6)
+base_excel.cloud_fill(7, cloud_data.usable_hourly)
+base_excel.sun_fill(8, sun_moon_data.readable_sun_hourly)
+base_excel.moon_fill(9, sun_moon_data.readable_moon_hourly)
+
+#### Save workbook
+base_excel.save_workbook()
