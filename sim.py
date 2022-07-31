@@ -242,6 +242,7 @@ class CloudData(BaseData):
         self.partly_cloudy = self.interpolate_data(partly_cloudy)
         self.mostly_cloudy = self.interpolate_data(mostly_cloudy)
         self.overcast = self.interpolate_data(overcast)
+        self.usable_hourly = []
         
     def generate_clouds(self):
         print('Starting generate_clouds')
@@ -291,6 +292,8 @@ class PrecipitationData(BaseData):
     def __init__(self, precipitation):
         super().__init__()
         self.precipitation = self.interpolate_data(precipitation)
+        self.usable_hourly_strength = []
+        self.usable_hourly_type = []
 
     def generate_precipitation(self):
         print('Starting generate_precipitation')
@@ -429,17 +432,18 @@ class DewData(BaseData):
     def __init__(self, dew_point):
         super().__init__()
         self.dew_point = self.interpolate_data(dew_point)
+        self.usable_hourly_dew_point = []
+        self.usable_hourly_dew_event = []
+        self.usable_hourly_fog = []
 
     def generate_dew_points(self, temperature_param_data, temperature_day_average, precipitation_param_data):
         print('Starting generate_dew_points')
         # Dew point is generated based on: The average daily dew point in self.dew, existing generated precipitation, and a wandering variation
         # The wandering variation should be designed to make the hourly dew point closer to max before and after a storm and then more random between storms
         wandering_variation = 0
-        wandering_correctiveness = 1 # Must be positive. A larger number means the temperature is more quickly corrected towards the average
+        wandering_correctiveness = 1.5 # Must be positive. A larger number means the temperature is more quickly corrected towards the average
         wandering_step_likelihood = 1.1 # Must be positive. A larger number means the temperature is less likely to wander by large amounts at once
-        wandering_adjusted_peak = 12 # Must be between 0 and 24. Closer to 0 leads to an increased likelihood of the wandering variation to be decreased
-        wandering_result_list = [x for x in range(-12, 13)]
-        wandering_result_list = [x/4 for x in wandering_result_list]
+        wandering_adjusted_peak = 20 # Must be between 0 and 24. Closer to 0 leads to an increased likelihood of the wandering variation to be decreased
         hours_since_storm = 0
         total_dew_point = []
         for year in range(calc_years):
@@ -450,6 +454,7 @@ class DewData(BaseData):
                     daily_dew_point = []
                     # Recalculate wandering_result_list every day so the rate of the dew point change can be adjusted by the day's average temperature
                     wandering_result_list = [x for x in range(-24, 25)]
+                    wandering_result_list = [x/4 for x in wandering_result_list]
                     wandering_result_list_modifier = (temperature_day_average[month][day] / 100)
                     wandering_result_list = [x * wandering_result_list_modifier for x in wandering_result_list]
                     for hour in range(hours_per_day):
@@ -502,7 +507,7 @@ class DewData(BaseData):
                             # Adjust the peak result of wondering_odds based on the hours until a storm occurs
                             adjusted_hours_until_storm = hours_until_storm - 24
                             adjusted_hours_since_storm = hours_since_storm - 24
-                            wandering_adjusted_peak = 12 - adjusted_hours_until_storm + adjusted_hours_since_storm
+                            wandering_adjusted_peak = 20 - adjusted_hours_until_storm + adjusted_hours_since_storm
                             adjusted_wandering_variation = (wandering_variation / 100) * wandering_correctiveness
                             if wandering_variation >= 0:
                                 wandering_odds = self.create_weighted_list_exponential(49, wandering_adjusted_peak, wandering_step_likelihood - adjusted_wandering_variation, wandering_step_likelihood)
@@ -529,7 +534,7 @@ class DewData(BaseData):
         # Additionally, temperature is used to determined if it should be dew or frost that is formed
         # Sunrise and sunset are used to determine if common dew and frost should form. It should be rare for dew and frost to form outside of the night/morning hours
         dew_rare_event = 0
-        last_dew_event = ''
+        last_dew_event = 0
         total_dew_frost = []
         for year in range(calc_years):
             yearly_dew_frost = []
@@ -555,7 +560,7 @@ class DewData(BaseData):
                         elif storm_active:
                             dew_frost_event = False
                         # Fourth, check if the dew point and temperature are close together enough for dew and frost to form
-                        elif current_dew_point >= current_temperature * 0.85:
+                        elif current_dew_point >= current_temperature * 0.75:
                             # Check if it is in the night/morning and dew/frost should form else check if a rare daytime dew/frost should form
                             if hour < sunrise_hour + 2 or hour > sunset_hour + 3:
                                 dew_frost_event = True
@@ -574,7 +579,7 @@ class DewData(BaseData):
                             else:
                                 current_dew_frost_event, last_dew_event = 'Dew', 'Dew'
                         else:
-                            current_dew_frost_event, last_dew_event = '', ''
+                            current_dew_frost_event, last_dew_event = 0, 0
                         daily_dew_frost.append(current_dew_frost_event)
                     monthly_dew_frost.append(daily_dew_frost)
                 yearly_dew_frost.append(monthly_dew_frost)
@@ -605,7 +610,7 @@ class DewData(BaseData):
                             fog = 'Fog'
                         else:
                             # Check if the dew point is close enough to the temperature for fog to form
-                            if self.usable_hourly_dew_point[year][month][day][hour] >= temperature_param_data[year][month][day][hour] * 0.95:
+                            if self.usable_hourly_dew_point[year][month][day][hour] >= temperature_param_data[year][month][day][hour] * 0.85:
                                 # If a storm is active, set hours_since_storm back to 0
                                 if precipitation_type_param_data[year][month][day][hour] != 0:
                                     hours_since_storm = 0
@@ -649,16 +654,16 @@ class DewData(BaseData):
                                     fog = 'Fog'
                                 else:
                                     fog_rand = random.random() * 100
-                                    if fog_rand < 50 and upcoming_storm != 'Rain' and upcoming_storm != 'Thunderstorm':
+                                    if fog_rand < 40 and upcoming_storm != 'Rain' and upcoming_storm != 'Thunderstorm':
                                         fog = 'Fog'
                                         fog_during_precipitation = random.choice([2, 3, 4])
-                                    elif fog_rand < 15:
+                                    elif fog_rand < 10:
                                         fog = 'Fog'
                                         fog_during_precipitation = random.choice([2, 3, 4])
                                     else:
-                                        fog = ''
+                                        fog = 0
                             else:
-                                fog = ''
+                                fog = 0
                         daily_fog.append(fog)
                     monthly_fog.append(daily_fog)
                 yearly_fog.append(monthly_fog)
@@ -671,6 +676,10 @@ class SunData(BaseData):
         super().__init__()
         self.sunrise = self.interpolate_data(sunrise)
         self.sunset = self.interpolate_data(sunset)
+        self.readable_sun_hourly = []
+        self.usable_sun_decimal_hourly = []
+        self.readable_moon_hourly = []
+        self.usable_moon_decimal_hourly = []
 
     def generate_sunrise_sunset(self):
         print('Starting generate_sunrise_sunset')
@@ -686,7 +695,7 @@ class SunData(BaseData):
                 daily_sun = []
                 for hour in range(hours_per_day):
                     # Check to see if the sunrise is occurring in the current hour, if so, append the decimal hour
-                    if hour <= self.sunrise[month][day] and hour + 1 >= self.sunrise[month][day]:
+                    if hour <= self.sunrise[month][day] <= hour + 1:
                         decimal_of_hour = math.modf(self.sunrise[month][day])[0]
                         decimal_of_hour = round(decimal_of_hour, 2)
                         daily_sun.append(decimal_of_hour)
@@ -870,13 +879,11 @@ class SunData(BaseData):
         print('Finished generate_moonrise_moonset')
 
 class WindData(BaseData):
-    def __init__(self, wind_speed, wind_dir_N, wind_dir_E, wind_dir_S, wind_dir_W):
+    def __init__(self, wind_speed):
         super().__init__()
         self.wind_speed = self.interpolate_data(wind_speed)
-        self.wind_dir_N = self.interpolate_data(wind_dir_N)
-        self.wind_dir_E = self.interpolate_data(wind_dir_E)
-        self.wind_dir_S = self.interpolate_data(wind_dir_S)
-        self.wind_dir_W = self.interpolate_data(wind_dir_W)
+        self.usable_hourly_speed = []
+        self.usable_hourly_direction = []
     
     def generate_wind_speeds(self, precipitation_param_data, sun_param_data):
         print('Starting generate_wind_speeds')
@@ -1006,11 +1013,11 @@ class BaseExcel:
         self.worksheet = self.workbook[worksheet_name]
         self.date_column = 1
         self.start_row = 2
-        self.rows_of_info_per_day = 9
+        self.rows_of_info_per_day = 11
 
     def populate_defaults(self, start_year):
         print('Starting populate_defaults')
-        weather_event_labels = ['Temperature', 'Humidity', 'Storm Strength', 'Storm Type', 'Wind Speed', 'Wind Direction', 'Clouds', 'Sun', 'Moon']
+        weather_event_labels = ['Temperature', 'Humidity', 'Storm Strength', 'Storm Type', 'Wind Speed', 'Wind Direction', 'Clouds', 'Dew/Frost', 'Fog', 'Sun', 'Moon']
         active_row = self.start_row
         for year in range(calc_years):
             for month in range(months_per_year):
@@ -1022,11 +1029,11 @@ class BaseExcel:
                     merged_date_cell.value = f'{month + 1}/{day + 1}/{year + start_year}'
                     # Align merged date to center
                     merged_date_cell.alignment = Alignment(horizontal='center', vertical='center')
-                    active_row += self.rows_of_info_per_day
                     #### Weather event labels
                     for label_index in range(len(weather_event_labels)):
                         self.worksheet.cell(column=self.date_column + 1, row=active_row + label_index).value = weather_event_labels[label_index]
                         self.worksheet.cell(column=self.date_column + 1, row=active_row + label_index).alignment = Alignment(horizontal='right')
+                    active_row += self.rows_of_info_per_day
         print('Finished populate_defaults')
 
     def populate_standard_row(self, row_to_populate, param_data):
@@ -1194,6 +1201,7 @@ class BaseExcel:
         active_row = self.start_row + row_to_fill - 1
         whiteFill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
         snowFill = PatternFill(start_color='DDEBF7', end_color='DDEBF7', fill_type='solid')
+        blizzardFill = PatternFill(start_color='8497B0', end_color='8497B0', fill_type='solid')
         sleetFill = PatternFill(start_color='BDD7EE', end_color='BDD7EE', fill_type='solid')
         frRainFill = PatternFill(start_color='9BC2E6', end_color='9BC2E6', fill_type='solid')
         rainFill = PatternFill(start_color='2F75B5', end_color='2F75B5', fill_type='solid')
@@ -1206,6 +1214,8 @@ class BaseExcel:
                             self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = whiteFill
                         elif precipitation_param_data[year][month][day][hour] == 'Snow':
                             self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = snowFill
+                        elif precipitation_param_data[year][month][day][hour] == 'Blizzard':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = blizzardFill
                         elif precipitation_param_data[year][month][day][hour] == 'Sleet':
                             self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = sleetFill
                         elif precipitation_param_data[year][month][day][hour] == 'Freezing Rain':
@@ -1251,6 +1261,41 @@ class BaseExcel:
                             self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = overcastFill
                     active_row += self.rows_of_info_per_day
         print('Finished cloud_fill')
+
+    def dew_frost_fill(self, row_to_fill, dew_frost_param_data):
+        print('Starting dew_frost_fill')
+        active_row = self.start_row + row_to_fill - 1
+        whiteFill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+        dewFill = PatternFill(start_color='8EA9DB', end_color='8EA9DB', fill_type='solid')
+        frostFill = PatternFill(start_color='ACB9CA', end_color='ACB9CA', fill_type='solid')
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        if dew_frost_param_data[year][month][day][hour] == 0:
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = whiteFill
+                        elif dew_frost_param_data[year][month][day][hour] == 'Dew':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = dewFill
+                        elif dew_frost_param_data[year][month][day][hour] == 'Frost':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = frostFill
+                    active_row += self.rows_of_info_per_day
+        print('Finished dew_frost_fill')
+    
+    def fog_fill(self, row_to_fill, fog_param_data):
+        print('Starting fog_fill')
+        active_row = self.start_row + row_to_fill - 1
+        whiteFill = PatternFill(start_color='FFFFFF', end_color='FFFFFF', fill_type='solid')
+        fogFill = PatternFill(start_color='AEAAAA', end_color='AEAAAA', fill_type='solid')
+        for year in range(calc_years):
+            for month in range(months_per_year):
+                for day in range(days_per_month):
+                    for hour in range(hours_per_day):
+                        if fog_param_data[year][month][day][hour] == 0:
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = whiteFill
+                        elif fog_param_data[year][month][day][hour] == 'Fog':
+                            self.worksheet.cell(column=self.date_column + 2 + hour, row=active_row).fill = fogFill
+                    active_row += self.rows_of_info_per_day
+        print('Finished fog_fill')
 
     def sun_fill(self, row_to_fill, sun_param_data):
         print('Starting sun_fill')
@@ -1345,19 +1390,13 @@ raw_sunset = [16.77, 17.37, 17.95, 19.38, 19.1, 19.6, 19.77, 19.42, 18.67, 17.8,
 # Wind speed is given as an average in mph
 raw_wind_speed = [10.1, 10.2, 9.8, 8.7, 7.4, 6.7, 6.4, 6.4, 7.3, 8.4, 9.2, 9.7, 10.1]
 
-# Wind direction is given as percent chance of direction
-raw_wind_direction_north = [28, 32, 32, 30, 25, 21, 19, 20, 25, 27, 30, 28, 28]
-raw_wind_direction_east = [10, 10, 13, 18, 18, 18, 11, 12, 17, 17, 13, 12, 10]
-raw_wind_direction_south = [16, 16, 18, 21, 24, 28, 33, 35, 36, 28, 22, 18, 16]
-raw_wind_direction_west = [46, 42, 37, 31, 33, 33, 37, 33, 22, 28, 35, 42, 46]
-
 ##### Declare data classes and interpolate the data
 temperature_data = TemperatureData(raw_temp_avg_low, raw_temp_avg_avg, raw_temp_avg_high)
 cloud_data = CloudData(raw_clouds_clear, raw_clouds_mostly_clear, raw_clouds_partly_cloudy, raw_clouds_mostly_cloudy, raw_clouds_overcast)
 precipitation_data = PrecipitationData(raw_precipitation_avg)
 sun_moon_data = SunData(raw_sunrise, raw_sunset)
 dew_data = DewData(raw_dew_point_avg)
-wind_data = WindData(raw_wind_speed, raw_wind_direction_north, raw_wind_direction_east, raw_wind_direction_south, raw_wind_direction_west)
+wind_data = WindData(raw_wind_speed)
 
 #### Order of data calculations
 precipitation_data.generate_precipitation()
@@ -1388,8 +1427,10 @@ base_excel.populate_precipitation_type_row(4, precipitation_data.usable_hourly_t
 base_excel.populate_standard_row(5, wind_data.usable_hourly_speed)
 base_excel.populate_standard_row(6, wind_data.usable_hourly_direction)
 base_excel.populate_cloud_row(7, cloud_data.usable_hourly)
-base_excel.populate_sun_moon_row(8, sun_moon_data.readable_sun_hourly)
-base_excel.populate_sun_moon_row(9, sun_moon_data.readable_moon_hourly)
+base_excel.populate_standard_row(8, dew_data.usable_hourly_dew_event)
+base_excel.populate_standard_row(9, dew_data.usable_hourly_fog)
+base_excel.populate_sun_moon_row(10, sun_moon_data.readable_sun_hourly)
+base_excel.populate_sun_moon_row(11, sun_moon_data.readable_moon_hourly)
 base_excel.populate_borders()
 base_excel.color_scale(1, temperature_data.usable_hourly)
 base_excel.color_scale(2, dew_data.usable_hourly_dew_point)
@@ -1398,8 +1439,10 @@ base_excel.precipitation_type_fill(4, precipitation_data.usable_hourly_type)
 base_excel.color_scale(5, wind_data.usable_hourly_speed)
 base_excel.wind_direction_fill(6)
 base_excel.cloud_fill(7, cloud_data.usable_hourly)
-base_excel.sun_fill(8, sun_moon_data.readable_sun_hourly)
-base_excel.moon_fill(9, sun_moon_data.readable_moon_hourly)
+base_excel.dew_frost_fill(8, dew_data.usable_hourly_dew_event)
+base_excel.fog_fill(9, dew_data.usable_hourly_fog)
+base_excel.sun_fill(10, sun_moon_data.readable_sun_hourly)
+base_excel.moon_fill(11, sun_moon_data.readable_moon_hourly)
 
 #### Save workbook
 base_excel.save_workbook()
